@@ -35,9 +35,9 @@ class MyClient(WebSocketClient):
         self.final_hyps = []
         self.audiofile = audiofile
         self.byterate = byterate
-        self.final_hyp_queue = Queue.Queue()
-        self.save_adaptation_state_filename = save_adaptation_state_filename
-        self.send_adaptation_state_filename = send_adaptation_state_filename
+        self.final_hyp_queue = Queue.Queue()  # implements multi-producer, multi-consumer queue
+        self.save_adaptation_state_filename = save_adaptation_state_filename # SAVE
+        self.send_adaptation_state_filename = send_adaptation_state_filename # SEND
 
     @rate_limited(4)
     def send_data(self, data):
@@ -92,6 +92,7 @@ class MyClient(WebSocketClient):
 
 
     def get_full_hyp(self, timeout=60):
+        # blocks at most 'timeout' seconds and raises the Empty exception if no item was available within that time
         return self.final_hyp_queue.get(timeout)
 
     def closed(self, code, reason=None):

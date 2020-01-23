@@ -5,6 +5,9 @@
 """
 Reads speech data via websocket requests, sends it to Redis, waits for results from Redis and
 forwards to client via websocket
+
+Note: Redis is an in-memory data structure store, used as a database, cache and message broker
+(which also does not seem to be used here...)
 """
 import sys
 import logging
@@ -29,15 +32,29 @@ import common
 
 
 class Application(tornado.web.Application):
+    """
+    Responsible for global configuration, including the routing table that maps requests to handlers
+    """
     def __init__(self):
+        # Application settings:
         settings = dict(
-            cookie_secret="43oETzKXQAGaYdkL5gEmGeJJFuYh7EQnp2XdTP1o/Vo=",
-            template_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates"),
-            static_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), "static"),
-            xsrf_cookies=False,
-            autoescape=None,
+            # Authentication and security settings:
+            cookie_secret="43oETzKXQAGaYdkL5gEmGeJJFuYh7EQnp2XdTP1o/Vo=", 
+            # used by RequestHandler.get_secure_cookie() and set_secure_cookie() to sign cookies
+            # to generate cookie_secret value (unique, random string):
+            # >>> import base64, uuid
+            # >>> base64.b64encode(uuid.uuid4().bytes + uuid.uuid4().bytes)            
+            xsrf_cookies=False, # if True, Cross-site request forgery protection will be enabled
+            
+            # Template settings:
+            autoescape=None, # controls automatic escaping for templates (raplacing &, <, > with their corresponding HTML entities)
+            template_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates"), # directory containing template files
+
+            # Static file settings:
+            static_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), "static"), # directory from which static files will be served
         )
 
+        # The routing table is a list of URLSpec objects (or tuples), each of which contains (at least) a regular expression and a handler class
         handlers = [
             (r"/", MainHandler),
             (r"/client/ws/speech", DecoderSocketHandler),
@@ -46,24 +63,34 @@ class Application(tornado.web.Application):
             (r"/client/dynamic/recognize", HttpChunkedRecognizeHandler),
             (r"/worker/ws/speech", WorkerSocketHandler),
             (r"/client/static/(.*)", tornado.web.StaticFileHandler, {'path': settings["static_path"]}),
+            # third element supplies the initialization arguments which will be passed to RequestHandler.initialize
         ]
         tornado.web.Application.__init__(self, handlers, **settings)
         self.available_workers = set()
-        self.status_listeners = set()
+        self.status_listeners = set() # Client Web Sockets
         self.num_requests_processed = 0
 
     def send_status_update_single(self, ws):
+        """
+        Number of workers available and requests processed
+        """
         status = dict(num_workers_available=len(self.available_workers), num_requests_processed=self.num_requests_processed)
-        ws.write_message(json.dumps(status))
+        ws.write_message(json.dumps(status)) # send JSON formatted message (str) to the client of this Web Socket
 
     def send_status_update(self):
+        """
+        Send status update to each listening client web socket
+        """
         for ws in self.status_listeners:
             self.send_status_update_single(ws)
 
     def save_reference(self, content_id, content):
+        """
+        Used by ReferenceHandler()
+        """
         refs = {}
         try:
-            with open("reference-content.json") as f:
+            with open("reference-content.json") as f: # where does reference-content.json come from?
                 refs = json.load(f)
         except:
             pass
@@ -77,12 +104,13 @@ class MainHandler(tornado.web.RequestHandler):
         current_directory = os.path.dirname(os.path.abspath(__file__))
         parent_directory = os.path.join(current_directory, os.pardir)
         readme = os.path.join(parent_directory, "README.md")
-        self.render(readme)
+        self.render(readme) # load a Template by name and render it with the given arguments
 
 
 def content_type_to_caps(content_type):
     """
     Converts MIME-style raw audio content type specifier to GStreamer CAPS string
+    Used by HttpChunkedRecognizeHandler()
     """
     default_attributes= {"rate": 16000, "format" : "S16LE", "channels" : 1, "layout" : "interleaved"}
     media_type, _, attr_string = content_type.replace(";", ",").partition(",")
@@ -102,9 +130,8 @@ class HttpChunkedRecognizeHandler(tornado.web.RequestHandler):
     Provides a HTTP POST/PUT interface supporting chunked transfer requests, similar to that provided by
     http://github.com/alumae/ruby-pocketsphinx-server.
     """
-
     def prepare(self):
-        self.id = str(uuid.uuid4())
+        self.id = str(uuid.uuid4()) # uuid4() creates a random UUID object (unique identifier)
         self.final_hyp = ""
         self.final_result_queue = Queue()
         self.user_id = self.request.headers.get("device-id", "none")
@@ -113,15 +140,15 @@ class HttpChunkedRecognizeHandler(tornado.web.RequestHandler):
         self.worker = None
         self.error_status = 0
         self.error_message = None
-        #Waiter thread for final hypothesis:
+        # Waiter thread for final hypothesis:
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) 
         try:
-            self.worker = self.application.available_workers.pop()
+            self.worker = self.application.available_workers.pop() # remove and return an arbitrary set element
             self.application.send_status_update()
             logging.info("%s: Using worker %s" % (self.id, self.__str__()))
-            self.worker.set_client_socket(self)
+            self.worker.set_client_socket(self) # WorkerSocketHandler()
 
-            content_type = self.request.headers.get("Content-Type", None)
+            content_type = self.request.headers.get("Content-Type", None) # DecoderSocketHandler()
             if content_type:
                 content_type = content_type_to_caps(content_type)
                 logging.info("%s: Using content type: %s" % (self.id, content_type))
@@ -208,11 +235,12 @@ class ReferenceHandler(tornado.web.RequestHandler):
             self.finish("No Content-Id specified")
 
     def options(self, *args, **kwargs):
-        self.set_header('Access-Control-Allow-Origin', '*')
-        self.set_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
-        self.set_header('Access-Control-Max-Age', 1000)
-        # note that '*' is not valid for Access-Control-Allow-Headers
-        self.set_header('Access-Control-Allow-Headers',  'origin, x-csrftoken, content-type, accept, User-Id, Content-Id')
+        # CORS (Cross-origin resource sharing) server response headers:
+        self.set_header('Access-Control-Allow-Origin', '*') # allows all domains
+        self.set_header('Access-Control-Allow-Methods', 'POST, OPTIONS') # allowed request methods
+        self.set_header('Access-Control-Max-Age', 1000) # max num of secs the results can be cached
+        self.set_header('Access-Control-Allow-Headers',  'origin, x-csrftoken, content-type, accept, User-Id, Content-Id') 
+        # allowed request headers, '*' is not valid
 
 
 class StatusSocketHandler(tornado.websocket.WebSocketHandler):
@@ -240,12 +268,18 @@ class WorkerSocketHandler(tornado.websocket.WebSocketHandler):
         return True
 
     def open(self):
+        """
+        Adds new worker
+        """
         self.client_socket = None
         self.application.available_workers.add(self)
         logging.info("New worker available " + self.__str__())
         self.application.send_status_update()
 
     def on_close(self):
+        """
+        Removes a worker
+        """
         logging.info("Worker " + self.__str__() + " leaving")
         self.application.available_workers.discard(self)
         if self.client_socket:
@@ -253,11 +287,17 @@ class WorkerSocketHandler(tornado.websocket.WebSocketHandler):
         self.application.send_status_update()
 
     def on_message(self, message):
+        """
+        Send event to decoder client
+        """
         assert self.client_socket is not None
         event = json.loads(message)
         self.client_socket.send_event(event)
 
     def set_client_socket(self, client_socket):
+        """
+        Adds decoder client
+        """
         self.client_socket = client_socket
 
 
@@ -275,9 +315,14 @@ class DecoderSocketHandler(tornado.websocket.WebSocketHandler):
         self.write_message(json.dumps(event))
 
     def open(self):
+        """
+        Connects to available worker
+        """
         self.id = str(uuid.uuid4())
         logging.info("%s: OPEN" % (self.id))
         logging.info("%s: Request arguments: %s" % (self.id, " ".join(["%s=\"%s\"" % (a, self.get_argument(a)) for a in self.request.arguments])))
+        # self.request.arguments - GET/POST args, names - strs, args - byte strs
+        # self.get_atgument(a) - return arg vals (a is arg name) as unicode str
         self.user_id = self.get_argument("user-id", "none", True)
         self.content_id = self.get_argument("content-id", "none", True)
         self.worker = None
@@ -299,6 +344,10 @@ class DecoderSocketHandler(tornado.websocket.WebSocketHandler):
             self.close()
 
     def on_connection_close(self):
+        """
+        Increments number of processed requests
+        Closes worker connection
+        """
         logging.info("%s: Handling on_connection_close()" % self.id)
         self.application.num_requests_processed += 1
         self.application.send_status_update()
@@ -311,6 +360,9 @@ class DecoderSocketHandler(tornado.websocket.WebSocketHandler):
                 pass
 
     def on_message(self, message):
+        """
+        Sends message to worker
+        """
         assert self.worker is not None
         logging.info("%s: Forwarding client message (%s) of length %d to worker" % (self.id, type(message), len(message)))
         if isinstance(message, unicode):
@@ -320,13 +372,23 @@ class DecoderSocketHandler(tornado.websocket.WebSocketHandler):
 
 
 def main():
+    # Logging:
+    # %(levelname)8s - text logging level for the message: 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+    # %(asctime)s - human-readable time
+    # %(message)s - the logged message
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)8s %(asctime)s %(message)s ")
     logging.debug('Starting up server')
+    
+    # Parses global options from the command line
     from tornado.options import define, options
+    # The following line is in settings.py and not here... why?
+    # define("port", default=8888, help="run on the given port", type=int)
     define("certfile", default="", help="certificate file for secured SSL connection")
     define("keyfile", default="", help="key file for secured SSL connection")
 
     tornado.options.parse_command_line()
+
+    # Initializes web application (request handlers)
     app = Application()
     if options.certfile and options.keyfile:
         ssl_options = {
@@ -334,9 +396,11 @@ def main():
           "keyfile": options.keyfile,
         }
         logging.info("Using SSL for serving requests")
-        app.listen(options.port, ssl_options=ssl_options)
+        app.listen(options.port, ssl_options=ssl_options) # Starts an HTTP server for this app
     else:
         app.listen(options.port)
+    
+    #I/O event loop for non-blocking sockets
     tornado.ioloop.IOLoop.instance().start()
 
 
