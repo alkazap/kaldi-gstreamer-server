@@ -158,7 +158,7 @@ class DecoderPipeline(object):
         self.asr.connect('hyp-word', self._on_word) # calls '_on_word' method whenever decoding plugin produces a new recognized word
 
         logger.info("Setting pipeline to READY")
-        self.pipeline.set_state(Gst.State.READY)
+        self.pipeline.set_state(Gst.State.READY) # not processing any data
         logger.info("Set pipeline to READY")
 
     def _connect_decoder(self, element, pad):
@@ -219,7 +219,7 @@ class DecoderPipeline(object):
         Called by '_on_error' and '_on_eos' methods
         """
         logger.info('%s: Finishing request' % self.request_id)
-        if self.outdir:
+        if self.outdir: # not sure what this does
             self.filesink.set_state(Gst.State.NULL)
             self.filesink.set_property('location', "/dev/null")
             self.filesink.set_state(Gst.State.PLAYING)
@@ -230,7 +230,7 @@ class DecoderPipeline(object):
         self.request_id = id
         if caps_str and len(caps_str) > 0:
             logger.info("%s: Setting caps to %s" % (self.request_id, caps_str))
-            caps = Gst.caps_from_string(caps_str)
+            caps = Gst.caps_from_string(caps_str) # caps - media type
             self.appsrc.set_property("caps", caps)
         else:
             ##caps = Gst.caps_from_string(None)
@@ -239,7 +239,7 @@ class DecoderPipeline(object):
             pass
         ##self.appsrc.set_state(Gst.State.PAUSED)
 
-        if self.outdir:
+        if self.outdir: # not sure what this does
             self.pipeline.set_state(Gst.State.PAUSED)
             self.filesink.set_state(Gst.State.NULL)
             self.filesink.set_property('location', "%s/%s.raw" % (self.outdir, id))
@@ -260,7 +260,7 @@ class DecoderPipeline(object):
         Passes data to9 appsrc with the "push-buffer" action signal.
         """
         logger.debug('%s: Pushing buffer of size %d to pipeline' % (self.request_id, len(data)))
-        # Create a new empty bugger
+        # Create a new empty buffer
         buf = Gst.Buffer.new_allocate(None, len(data), None)
         # Copy data to buffer at 0 offset
         buf.fill(0, data)
