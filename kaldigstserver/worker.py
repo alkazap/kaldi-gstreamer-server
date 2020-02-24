@@ -54,7 +54,7 @@ class ServerWebsocket(WebSocketClient):
         WebSocketClient.__init__(self, url=uri, heartbeat_freq=10)
         self.pipeline_initialized = False
         self.partial_transcript = ""
-        if USE_NNET2:
+        if USE_NNET2: # for DecoderPipeline2
             self.decoder_pipeline.set_result_handler(self._on_result)
             self.decoder_pipeline.set_full_result_handler(self._on_full_result)
             self.decoder_pipeline.set_error_handler(self._on_error)
@@ -100,9 +100,13 @@ class ServerWebsocket(WebSocketClient):
             time.sleep(1)
 
     def received_message(self, m):
+        """
+        Called whenever a complete message, binary or text, 
+        is received and ready for application’s processing.
+        """
         logger.debug("%s: Got message from server of type %s" % (self.request_id, str(type(m))))
         if self.state == self.__class__.STATE_CONNECTED:
-            props = json.loads(str(m))
+            props = json.loads(str(m)) # adaptation_state_props
             content_type = props['content_type']
             self.request_id = props['id']
             self.num_segments = 0
@@ -140,6 +144,7 @@ class ServerWebsocket(WebSocketClient):
 
     def finish_request(self):
         """
+        Called if time is out or connection closed
         If state is STATE_CONNECTED or STATE_INITIALIZED, calls decoder's finish_request() and changes state to STATE_FINISHED
         If state is STATE_FINISHED, chances state to STATE_CANCELLING, calls decoder's cancel(), 
         waits for decoder to finish and if hope is lost - changes state to STATE_FINISHED and calls itself
@@ -189,7 +194,7 @@ class ServerWebsocket(WebSocketClient):
         self.processing_condition.notify()
 
     @tornado.gen.coroutine
-    def _on_result(self, result, final):
+    def _on_result(self, result, final): # for DecoderPipeline2
         try:
             self._increment_num_processing(1)
             if final:
@@ -215,7 +220,7 @@ class ServerWebsocket(WebSocketClient):
             self._increment_num_processing(-1)
     
     @tornado.gen.coroutine                     
-    def _on_full_result(self, full_result_json):
+    def _on_full_result(self, full_result_json): # for DecoderPipeline2
         try:
             self._increment_num_processing(1)
             
@@ -248,7 +253,7 @@ class ServerWebsocket(WebSocketClient):
             self._increment_num_processing(-1)
     
     @tornado.gen.coroutine
-    def _on_word(self, word):
+    def _on_word(self, word): # for DecoderPipeline
         try:
             self._increment_num_processing(1)
             
@@ -286,7 +291,7 @@ class ServerWebsocket(WebSocketClient):
         # post-processing has finished
         while self.num_processing_threads > 0:
             logging.debug("Waiting until processing threads finish (%d)" % self.num_processing_threads)
-            yield self.processing_condition.wait()
+            yield self.processing_condition.wait() # wait for notify
         
         self.state = self.STATE_FINISHED
         self.send_adaptation_state() # for DecoderPipeline2
@@ -302,7 +307,7 @@ class ServerWebsocket(WebSocketClient):
             logger.warning("Failed to send event to master: %s" % e)
         self.close()
 
-    def send_adaptation_state(self):
+    def send_adaptation_state(self): # for DecoderPipeline2
         if hasattr(self.decoder_pipeline, 'get_adaptation_state'): # for DecoderPipeline2
             logger.info("%s: Sending adaptation state to client..." % (self.request_id))
             adaptation_state = self.decoder_pipeline.get_adaptation_state()

@@ -214,23 +214,23 @@ class DecoderPipeline(object):
         if self.eos_handler:
             self.eos_handler[0](self.eos_handler[1])
 
-    def finish_request(self): # called from worker.py
+    def finish_request(self): # called from worker.py's finish_request()
         """
         Called by '_on_error' and '_on_eos' methods
         """
         logger.info('%s: Finishing request' % self.request_id)
-        if self.outdir: # not sure what this does
+        if self.outdir: # change filesink location property outdir -> /dev/null 
             self.filesink.set_state(Gst.State.NULL)
             self.filesink.set_property('location', "/dev/null")
             self.filesink.set_state(Gst.State.PLAYING)
         self.pipeline.set_state(Gst.State.NULL)
         self.request_id = "<undefined>"
 
-    def init_request(self, id, caps_str): # called from worker.py
+    def init_request(self, id, caps_str): # called from worker.py's recieved_message() if STATE=CONNECTED
         self.request_id = id
-        if caps_str and len(caps_str) > 0:
+        if caps_str and len(caps_str) > 0: # caps (capabilities) is media type (or content type)
             logger.info("%s: Setting caps to %s" % (self.request_id, caps_str))
-            caps = Gst.caps_from_string(caps_str) # caps - media type
+            caps = Gst.caps_from_string(caps_str) 
             self.appsrc.set_property("caps", caps)
         else:
             ##caps = Gst.caps_from_string(None)
@@ -239,7 +239,7 @@ class DecoderPipeline(object):
             pass
         ##self.appsrc.set_state(Gst.State.PAUSED)
 
-        if self.outdir: # not sure what this does
+        if self.outdir: # change filesink location property /dev/null -> outdir 
             self.pipeline.set_state(Gst.State.PAUSED)
             self.filesink.set_state(Gst.State.NULL)
             self.filesink.set_property('location', "%s/%s.raw" % (self.outdir, id))
@@ -249,15 +249,15 @@ class DecoderPipeline(object):
         ##self.decodebin.set_state(Gst.State.PLAYING)
         self.pipeline.set_state(Gst.State.PLAYING)
         self.filesink.set_state(Gst.State.PLAYING)
-        # Create a new empty bugger
+        # Create a new empty buffer
         buf = Gst.Buffer.new_allocate(None, 0, None)
         # Push empty buffer into the appsrc (to avoid hang on client diconnect)
         self.appsrc.emit("push-buffer", buf)
         logger.info('%s: Pipeline initialized' % (self.request_id))
 
-    def process_data(self, data): # called from worker.py
+    def process_data(self, data): # called from worker.py's recieved_message() (default case)
         """
-        Passes data to9 appsrc with the "push-buffer" action signal.
+        Passes data to appsrc with the "push-buffer" action signal.
         """
         logger.debug('%s: Pushing buffer of size %d to pipeline' % (self.request_id, len(data)))
         # Create a new empty buffer
@@ -267,7 +267,7 @@ class DecoderPipeline(object):
         # Push the buffer into the appsrc
         self.appsrc.emit("push-buffer", buf)
 
-    def end_request(self): # called from worker.py
+    def end_request(self): # called from worker.py's recieved_message() if message is "EOS"
         """
         Emits "end-of-stream" action signal after the app has finished putting data into appsrc.
         After this call, no more buffers can be pushed into appsrc until a flushing seek occurs 
@@ -276,16 +276,16 @@ class DecoderPipeline(object):
         logger.info("%s: Pushing EOS to pipeline" % self.request_id)
         self.appsrc.emit("end-of-stream")
 
-    def set_word_handler(self, handler): # called from worker.py
+    def set_word_handler(self, handler): # called from worker.py's __init__()
         self.word_handler = handler
 
-    def set_eos_handler(self, handler, user_data=None): # called from worker.py
+    def set_eos_handler(self, handler, user_data=None): # called from worker.py's __init__()
         self.eos_handler = (handler, user_data)
 
-    def set_error_handler(self, handler): # called from worker.py
+    def set_error_handler(self, handler): # called from worker.py's __init__()
         self.error_handler = handler
 
-    def cancel(self): # called from worker.py
+    def cancel(self): # called from worker.py's finish_request() if STATE!=FINISHED
         """
         Sends EOS (downstream) event to the pipeline. No more data is to be expected to follow 
         without either a STREAM_START event, or a FLUSH_STOP and a SEGMENT event.

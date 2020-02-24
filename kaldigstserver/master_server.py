@@ -5,9 +5,11 @@
 """
 Reads speech data via websocket requests, sends it to Redis, waits for results from Redis and
 forwards to client via websocket
-
+"""
+"""
 Note: Redis is an in-memory data structure store, used as a database, cache and message broker
 (which also does not seem to be used here...)
+-@alkazap
 """
 import sys
 import logging
@@ -72,7 +74,7 @@ class Application(tornado.web.Application):
 
     def send_status_update_single(self, ws):
         """
-        Number of workers available and requests processed
+        Send number of workers available and number of requests processed to a client
         """
         status = dict(num_workers_available=len(self.available_workers), num_requests_processed=self.num_requests_processed)
         ws.write_message(json.dumps(status)) # send JSON formatted message (str) to the client of this Web Socket
@@ -109,16 +111,20 @@ class MainHandler(tornado.web.RequestHandler):
 
 def content_type_to_caps(content_type):
     """
-    Converts MIME-style raw audio content type specifier to GStreamer CAPS string
+    Converts MIME-style raw audio content type specifier to GStreamer CAPS (capabilities) string
     Used by HttpChunkedRecognizeHandler()
+    Example: 
+        input str = "audio/x-raw;rate=16000;format=S16LE;channels=1;layout=interleaved"
+        output_str = "audio/x-raw, rate=16000, format=S16LE, channels=1, layout=interleaved"
     """
     default_attributes= {"rate": 16000, "format" : "S16LE", "channels" : 1, "layout" : "interleaved"}
-    media_type, _, attr_string = content_type.replace(";", ",").partition(",")
+    media_type, _, attr_string = content_type.replace(";", ",").partition(",") # replace() replaces all ";" with ","
+    # media_type = str before ","; _ = ","; attr_string = str after ","
     if media_type in ["audio/x-raw", "audio/x-raw-int"]:
         media_type = "audio/x-raw"
         attributes = default_attributes
-        for (key,_,value) in [p.partition("=") for p in attr_string.split(",")]:
-            attributes[key.strip()] = value.strip()
+        for (key,_,value) in [p.partition("=") for p in attr_string.split(",")]: # split() turns str into a list
+            attributes[key.strip()] = value.strip() # strip() removes spaces at the beginning and the end
         return "%s, %s" % (media_type, ", ".join(["%s=%s" % (key, value) for (key,value) in attributes.iteritems()]))
     else:
         return content_type
@@ -133,7 +139,7 @@ class HttpChunkedRecognizeHandler(tornado.web.RequestHandler):
     def prepare(self):
         self.id = str(uuid.uuid4()) # uuid4() creates a random UUID object (unique identifier)
         self.final_hyp = ""
-        self.final_result_queue = Queue()
+        self.final_result_queue = Queue() # multi-producer, multi-consumer queue, useful in threaded programming
         self.user_id = self.request.headers.get("device-id", "none")
         self.content_id = self.request.headers.get("content-id", "none")
         logging.info("%s: OPEN: user='%s', content='%s'" % (self.id, self.user_id, self.content_id))
@@ -141,9 +147,9 @@ class HttpChunkedRecognizeHandler(tornado.web.RequestHandler):
         self.error_status = 0
         self.error_message = None
         # Waiter thread for final hypothesis:
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) 
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) # asynch execution with threads
         try:
-            self.worker = self.application.available_workers.pop() # remove and return an arbitrary set element
+            self.worker = self.application.available_workers.pop() # remove and return an arbitrary worker
             self.application.send_status_update()
             logging.info("%s: Using worker %s" % (self.id, self.__str__()))
             self.worker.set_client_socket(self) # WorkerSocketHandler()
@@ -156,10 +162,13 @@ class HttpChunkedRecognizeHandler(tornado.web.RequestHandler):
             self.worker.write_message(json.dumps(dict(id=self.id, content_type=content_type, user_id=self.user_id, content_id=self.content_id)))
         except KeyError:
             logging.warn("%s: No worker available for client request" % self.id)
-            self.set_status(503)
-            self.finish("No workers available")
+            self.set_status(503) # Sets reponse status to Service Unavailable Error
+            self.finish("No workers available") # Finishes this response, ending the HTTP request
 
     def data_received(self, chunk):
+        """
+        Called whenever data is available
+        """
         assert self.worker is not None
         logging.debug("%s: Forwarding client message of length %d to worker" % (self.id, len(chunk)))
         self.worker.write_message(chunk, binary=True)
@@ -174,6 +183,8 @@ class HttpChunkedRecognizeHandler(tornado.web.RequestHandler):
     def get_final_hyp(self):
         logging.info("%s: Waiting for final result..." % self.id)
         return self.final_result_queue.get(block=True)
+        # Remove and return an item from the queue
+        # block if necessary until an item is available
 
     @tornado.web.asynchronous
     @tornado.gen.coroutine
@@ -231,7 +242,7 @@ class ReferenceHandler(tornado.web.RequestHandler):
             logging.info("Received reference text for content %s and user %s" % (content_id, user_id))
             self.set_header('Access-Control-Allow-Origin', '*')
         else:
-            self.set_status(400)
+            self.set_status(400) # Bad Request Error
             self.finish("No Content-Id specified")
 
     def options(self, *args, **kwargs):
@@ -259,6 +270,9 @@ class StatusSocketHandler(tornado.websocket.WebSocketHandler):
 
 
 class WorkerSocketHandler(tornado.websocket.WebSocketHandler):
+    """
+    Handles worker connection
+    """
     def __init__(self, application, request, **kwargs):
         tornado.websocket.WebSocketHandler.__init__(self, application, request, **kwargs)
         self.client_socket = None
@@ -296,14 +310,20 @@ class WorkerSocketHandler(tornado.websocket.WebSocketHandler):
 
     def set_client_socket(self, client_socket):
         """
-        Adds decoder client
+        Adds decoder client socket
         """
         self.client_socket = client_socket
 
 
 class DecoderSocketHandler(tornado.websocket.WebSocketHandler):
+    """
+    Handles client connection
+    """
     # needed for Tornado 4.0
     def check_origin(self, origin):
+        """
+        Accept all cross-origin traffic
+        """
         return True
 
     def send_event(self, event):
@@ -383,8 +403,8 @@ def main():
     from tornado.options import define, options
     # The following line is in settings.py and not here... why?
     # define("port", default=8888, help="run on the given port", type=int)
-    define("certfile", default="", help="certificate file for secured SSL connection")
-    define("keyfile", default="", help="key file for secured SSL connection")
+    define("certfile", default="", help="certificate file for secured SSL connection") # "mydomain.crt"
+    define("keyfile", default="", help="key file for secured SSL connection") # "mydomain.key"
 
     tornado.options.parse_command_line()
 
@@ -395,7 +415,7 @@ def main():
           "certfile": options.certfile,
           "keyfile": options.keyfile,
         }
-        logging.info("Using SSL for serving requests")
+        logging.info("Using SSL for serving requests") 
         app.listen(options.port, ssl_options=ssl_options) # Starts an HTTP server for this app
     else:
         app.listen(options.port)

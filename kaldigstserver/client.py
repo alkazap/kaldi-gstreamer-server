@@ -41,9 +41,12 @@ class MyClient(WebSocketClient):
 
     @rate_limited(4)
     def send_data(self, data):
-        self.send(data, binary=True)
+        self.send(data, binary=True) # send data to the server
 
     def opened(self):
+        """
+        Called by the server when the upgrade handshake has succeeded.
+        """
         #print "Socket opened!"
         def send_data_to_ws():
             if self.send_adaptation_state_filename is not None:
@@ -65,6 +68,10 @@ class MyClient(WebSocketClient):
 
 
     def received_message(self, m):
+        """
+        Called whenever a complete message, binary or text, 
+        is received and ready for application’s processing.
+        """
         response = json.loads(str(m))
         #print >> sys.stderr, "RESPONSE:", response
         #print >> sys.stderr, "JSON was:", m
