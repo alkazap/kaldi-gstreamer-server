@@ -147,7 +147,7 @@ class HttpChunkedRecognizeHandler(tornado.web.RequestHandler):
         self.error_status = 0
         self.error_message = None
         # Waiter thread for final hypothesis:
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) # asynch execution with threads
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) # asynch (new thread) executor for get_final_hyp()
         try:
             self.worker = self.application.available_workers.pop() # remove and return an arbitrary worker
             self.application.send_status_update()

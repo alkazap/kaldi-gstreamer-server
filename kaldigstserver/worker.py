@@ -102,7 +102,7 @@ class ServerWebsocket(WebSocketClient):
     def received_message(self, m):
         """
         Called whenever a complete message, binary or text, 
-        is received and ready for application’s processing.
+        is received and ready for application's processing.
         """
         logger.debug("%s: Got message from server of type %s" % (self.request_id, str(type(m))))
         if self.state == self.__class__.STATE_CONNECTED:

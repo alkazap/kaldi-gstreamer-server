@@ -70,7 +70,7 @@ class MyClient(WebSocketClient):
     def received_message(self, m):
         """
         Called whenever a complete message, binary or text, 
-        is received and ready for application’s processing.
+        is received and ready for application's processing.
         """
         response = json.loads(str(m))
         #print >> sys.stderr, "RESPONSE:", response
