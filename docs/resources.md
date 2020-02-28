@@ -2,7 +2,7 @@
 
 ## GStreamer
 
-- [Design Overview](https://gstreamer.freedesktop.org/documentation/additional/design/overview.html?gi-language=python#pipeline-states)
+- [Design Overview](https://gstreamer.freedesktop.org/documentation/additional/design/overview.html?gi-language=python)
 - [Basic Tutotials](https://gstreamer.freedesktop.org/documentation/tutorials/basic/index.html?gi-language=python)
 
 ## Tornado
