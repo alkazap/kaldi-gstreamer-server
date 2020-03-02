@@ -44,6 +44,7 @@ class DecoderPipelineTests(unittest.TestCase):
         cls.finished = True
 
     def setUp(self):
+        #before each test method
         self.__class__.words = []
         self.__class__.finished = False
 
